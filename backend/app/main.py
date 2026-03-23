@@ -42,8 +42,11 @@ async def lifespan(app: FastAPI):
     setup_logging()
     Base.metadata.create_all(bind=engine)
     scheduler.add_job(refresh_job, "interval", minutes=30, id="refresh_job", replace_existing=True)
+    
+    import datetime
+    scheduler.add_job(refresh_job, "date", run_date=datetime.datetime.now() + datetime.timedelta(seconds=2))
+    
     scheduler.start()
-    refresh_job()
     yield
     scheduler.shutdown()
 
