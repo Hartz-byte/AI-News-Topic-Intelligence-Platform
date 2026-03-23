@@ -11,15 +11,14 @@ class Settings(BaseSettings):
     backend_port: int = 8000
 
     database_url: str = "sqlite:///./local.db"
-    redis_url: str = "redis://localhost:6379/0"
-    qdrant_url: str = "http://localhost:6333"
+    cache_dir: str = "./cache"
+    qdrant_path: str = "./qdrant_db"
     qdrant_collection: str = "articles"
 
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
 
     serper_api_key: str = ""
-    newsapi_api_key: str = ""
 
     trend_refresh_minutes: int = 30
     article_fetch_limit: int = 30

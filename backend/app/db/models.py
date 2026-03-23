@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, JSON
 from sqlalchemy.sql import func
 from app.db.session import Base
 
@@ -15,6 +15,9 @@ class Article(Base):
     cleaned_content = Column(Text, nullable=False, default="")
     summary = Column(Text, nullable=False, default="")
     cluster_key = Column(String(250), nullable=True, index=True)
+    entities = Column(JSON, nullable=True, default=list)
+    keywords = Column(JSON, nullable=True, default=list)
+    vector = Column(JSON, nullable=True)    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Topic(Base):
@@ -25,7 +28,10 @@ class Topic(Base):
     category = Column(String(100), nullable=False, default="general")
     summary = Column(Text, nullable=False, default="")
     trend_score = Column(Float, nullable=False, default=0.0)
+    entities = Column(JSON, nullable=True, default=list)
+    keywords = Column(JSON, nullable=True, default=list)
     last_updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 
 class TopicArticle(Base):
     __tablename__ = "topic_articles"

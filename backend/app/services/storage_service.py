@@ -28,6 +28,8 @@ def upsert_articles(db: Session, items: list[dict]) -> list[Article]:
             cleaned_content=item.get("cleaned_content", "")[:20000],
             summary=item.get("summary", "")[:5000],
             cluster_key=item.get("cluster_key"),
+            entities=item.get("entities", []),
+            keywords=item.get("keywords", []),
         )
         db.add(article)
         db.flush()

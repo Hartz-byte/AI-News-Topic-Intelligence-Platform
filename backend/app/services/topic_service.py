@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from sqlalchemy.orm import Session
 from app.db.models import Article
 from app.services.rss_service import fetch_category_feed
-from app.services.extraction_service import extract_article_text
+from app.services.extraction_service import extract_article_text, extract_entities, extract_keywords
 from app.services.storage_service import upsert_articles
 from app.services.embedding_service import embed_texts
 from app.services.vector_service import ensure_collection, upsert_article_vector
@@ -13,26 +13,51 @@ from app.services.llm_service import summarize_topic
 CATEGORIES = ["technology", "business", "sports", "health", "science", "entertainment", "world"]
 
 def ingest_category(db: Session, category: str, limit: int = 20) -> list[Article]:
+    from app.services.vector_service import search_similar
+
     raw_items = fetch_category_feed(category, limit=limit)
     enriched = []
+    
+    # Process text
     for item in raw_items:
         text = extract_article_text(item["url"])
         item["cleaned_content"] = text[:20000]
         item["summary"] = (text[:350] + "...") if text else item["title"]
-        item["cluster_key"] = item["title"][:80].lower()
+        item["entities"] = extract_entities(text)
+        item["keywords"] = extract_keywords(text)
         enriched.append(item)
 
+    ensure_collection()
+    if not enriched:
+        return []
+
+    # Get vectors for new items
+    vectors = embed_texts([f"{a['title']}. {a.get('cleaned_content', '')[:1000]}" for a in enriched])
+    
+    # Semantic clustering
+    for item, vector in zip(enriched, vectors):
+        hits = search_similar(vector, limit=1)
+        if hits and hits[0].score > 0.85:
+            item["cluster_key"] = hits[0].payload.get("cluster_key") or item["title"][:80].lower()
+        else:
+            item["cluster_key"] = item["title"][:80].lower()
+
     saved = upsert_articles(db, enriched)
-    if saved:
-        ensure_collection()
-        vectors = embed_texts([f"{a.title}. {a.cleaned_content[:1000]}" for a in saved])
-        for article, vector in zip(saved, vectors):
+    
+    # Re-map vectors to saved objects
+    saved_urls = {a.url: a for a in saved}
+    
+    for item, vector in zip(enriched, vectors):
+        article = saved_urls.get(item["url"])
+        if article:
             upsert_article_vector(article.id, vector, {
                 "title": article.title,
                 "source_name": article.source_name,
                 "category": article.category,
-                "url": article.url
+                "url": article.url,
+                "cluster_key": article.cluster_key
             })
+
     return saved
 
 def ingest_all_categories(db: Session, limit: int = 10) -> dict:
@@ -42,36 +67,82 @@ def ingest_all_categories(db: Session, limit: int = 10) -> dict:
     return out
 
 def get_trending(db: Session, category: str, limit: int = 10) -> list[dict]:
-    rows = db.query(Article).filter(Article.category == category).order_by(Article.created_at.desc()).limit(200).all()
-    counter = Counter()
+    from datetime import datetime, timezone
+    rows = db.query(Article).filter(Article.category == category).order_by(Article.created_at.desc()).limit(300).all()
+    
     bucket = defaultdict(list)
     for row in rows:
-        topic = row.title.split(" - ")[0][:120]
-        counter[topic] += 1
-        bucket[topic].append(row)
+        bucket[row.cluster_key].append(row)
+        
     results = []
-    for topic, count in counter.most_common(limit):
+    now = datetime.now(timezone.utc)
+    for cluster_key, articles in bucket.items():
+        article_volume = len(articles)
+        source_diversity = len(set([a.source_name for a in articles]))
+        
+        # Recency score (0 to 1 based on how many hours old the newest article is)
+        times = []
+        for a in articles:
+            dt = a.published_at or a.created_at
+            if dt:
+                # Handle naive datetimes from DB
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                times.append(dt)
+        
+        newest_time = max(times) if times else now
+        hours_old = (now - newest_time).total_seconds() / 3600
+        recency_score = max(0.0, 1.0 - (hours_old / 48.0)) # Decays over 48 hours
+        
+        # Calculate score (out of 10 approx)
+        trend_score = (
+            (0.40 * recency_score * 10) + 
+            (0.30 * min(article_volume, 10)) + 
+            (0.30 * min(source_diversity, 5) * 2)
+        )
+        
         results.append({
-            "topic": topic,
+            "topic": cluster_key.title(),
             "category": category,
-            "trend_score": float(count),
-            "article_count": count,
+            "trend_score": round(trend_score, 2),
+            "article_count": article_volume,
         })
-    return results
+        
+    results.sort(key=lambda x: x["trend_score"], reverse=True)
+    return results[:limit]
 
 def search_topic(db: Session, query: str, category: str | None = None, limit: int = 8) -> dict:
-    q = db.query(Article)
-    if category:
-        q = q.filter(Article.category == category)
-    rows = q.filter(Article.title.ilike(f"%{query}%")).order_by(Article.created_at.desc()).limit(limit).all()
+    from app.services.vector_service import search_similar
 
-    if not rows:
-        for cat in [category] if category else ["technology", "business", "world"]:
-            ingest_category(db, cat, limit=10)
-        q = db.query(Article)
+    ensure_collection()
+    query_vector = embed_texts([query])[0]
+    hits = search_similar(query_vector, limit=limit * 2)
+
+    rows = []
+    if hits:
+        hit_ids = [hit.id for hit in hits]
+        q = db.query(Article).filter(Article.id.in_(hit_ids))
         if category:
             q = q.filter(Article.category == category)
-        rows = q.filter(Article.title.ilike(f"%{query}%")).order_by(Article.created_at.desc()).limit(limit).all()
+        fetched_rows = q.all()
+        fetched_rows.sort(key=lambda x: hit_ids.index(x.id) if x.id in hit_ids else 999)
+        rows = fetched_rows[:limit]
+        
+    if not rows:
+        # Fallback to ingestion if we don't have good hits
+        for cat in [category] if category else ["technology", "business", "world"]:
+            ingest_category(db, cat, limit=10)
+        
+        # Retry vector search
+        hits = search_similar(query_vector, limit=limit * 2)
+        if hits:
+            hit_ids = [hit.id for hit in hits]
+            q = db.query(Article).filter(Article.id.in_(hit_ids))
+            if category:
+                q = q.filter(Article.category == category)
+            fetched_rows = q.all()
+            fetched_rows.sort(key=lambda x: hit_ids.index(x.id) if x.id in hit_ids else 999)
+            rows = fetched_rows[:limit]
 
     payload = [
         {
