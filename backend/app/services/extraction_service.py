@@ -4,22 +4,19 @@ import spacy
 import subprocess
 from keybert import KeyBERT
 
-def _get_spacy_model():
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def get_spacy_model():
     try:
         return spacy.load("en_core_web_sm")
     except OSError:
         subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
         return spacy.load("en_core_web_sm")
 
-try:
-    nlp = _get_spacy_model()
-except Exception:
-    nlp = None
-
-try:
-    kw_model = KeyBERT()
-except Exception:
-    kw_model = None
+@lru_cache(maxsize=1)
+def get_kw_model():
+    return KeyBERT()
 
 def extract_article_text(url: str) -> str:
     try:
@@ -32,8 +29,9 @@ def extract_article_text(url: str) -> str:
         return ""
 
 def extract_entities(text: str) -> list[dict]:
-    if not text or not nlp:
+    if not text:
         return []
+    nlp = get_spacy_model()
     doc = nlp(text[:5000])
     entities = {}
     for ent in doc.ents:
@@ -44,8 +42,9 @@ def extract_entities(text: str) -> list[dict]:
     return [{"name": name, "entity_type": etype} for name, etype in entities.items()]
 
 def extract_keywords(text: str, top_n: int = 5) -> list[str]:
-    if not text or not kw_model:
+    if not text:
         return []
+    kw_model = get_kw_model()
     keywords = kw_model.extract_keywords(text[:2000], keyphrase_ngram_range=(1, 2), stop_words='english', top_n=top_n)
     return [kw[0] for kw in keywords]
 

@@ -108,6 +108,6 @@ A 100% natively running AI News Aggregator bridging modern NLP and large languag
 * **Frontend**: Streamlit, Python Requests
 
 ---
-⭐️ Liked my work? 
+### ⭐️ Liked my work? 
 Check out the [GitHub repo](https://github.com/Hartz-byte/AI-News-Topic-Intelligence-Platform) and give it a star!
 """)
