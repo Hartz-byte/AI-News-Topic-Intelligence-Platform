@@ -1,13 +1,11 @@
 from __future__ import annotations
 import trafilatura
-import spacy
 import subprocess
-from keybert import KeyBERT
-
 from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def get_spacy_model():
+    import spacy
     try:
         return spacy.load("en_core_web_sm")
     except OSError:
@@ -16,6 +14,7 @@ def get_spacy_model():
 
 @lru_cache(maxsize=1)
 def get_kw_model():
+    from keybert import KeyBERT
     return KeyBERT()
 
 def extract_article_text(url: str) -> str:
