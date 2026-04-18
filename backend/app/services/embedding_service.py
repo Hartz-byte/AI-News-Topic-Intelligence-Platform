@@ -1,14 +1,13 @@
 from __future__ import annotations
 from functools import lru_cache
 
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-
-@lru_cache
+@lru_cache(maxsize=1)
 def get_model():
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(MODEL_NAME)
+    from fastembed import TextEmbedding
+    return TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     model = get_model()
-    vectors = model.encode(texts, normalize_embeddings=True)
-    return [v.tolist() for v in vectors]
+    # fastembed.embed returns a generator
+    embeddings = list(model.embed(texts))
+    return [v.tolist() for v in embeddings]

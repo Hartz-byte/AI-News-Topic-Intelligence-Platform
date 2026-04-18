@@ -12,11 +12,6 @@ def get_spacy_model():
         subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
         return spacy.load("en_core_web_sm")
 
-@lru_cache(maxsize=1)
-def get_kw_model():
-    from keybert import KeyBERT
-    return KeyBERT()
-
 def extract_article_text(url: str) -> str:
     try:
         downloaded = trafilatura.fetch_url(url)
@@ -41,9 +36,25 @@ def extract_entities(text: str) -> list[dict]:
     return [{"name": name, "entity_type": etype} for name, etype in entities.items()]
 
 def extract_keywords(text: str, top_n: int = 5) -> list[str]:
+    """Lightweight spaCy-based keyword extraction to save memory."""
     if not text:
         return []
-    kw_model = get_kw_model()
-    keywords = kw_model.extract_keywords(text[:2000], keyphrase_ngram_range=(1, 2), stop_words='english', top_n=top_n)
-    return [kw[0] for kw in keywords]
+    nlp = get_spacy_model()
+    doc = nlp(text[:3000].lower())
+    
+    # Extract noun chunks and frequent nouns/proper nouns
+    keywords = []
+    for chunk in doc.noun_chunks:
+        cln = chunk.text.strip()
+        if len(cln) > 3 and " " in cln: # Prefer phrases
+            keywords.append(cln)
+    
+    for token in doc:
+        if token.pos_ in ["NOUN", "PROPN"] and not token.is_stop and len(token.text) > 3:
+            keywords.append(token.text)
+            
+    # Simple frequency ranking
+    from collections import Counter
+    counts = Counter(keywords)
+    return [k for k, v in counts.most_common(top_n)]
 
