@@ -123,7 +123,17 @@ def search_topic(db: Session, query: str, category: str | None = None, limit: in
     from app.services.vector_service import search_similar
 
     ensure_collection()
-    query_vector = embed_texts([query])[0]
+    vectors = embed_texts([query])
+    if not vectors:
+        return {
+            "query": query,
+            "summary": "The AI embedding service is currently warming up or busy. Please try again in 30 seconds.",
+            "key_facts": ["System Warming Up"],
+            "category": "system",
+            "articles": [],
+        }
+    
+    query_vector = vectors[0]
     hits = search_similar(query_vector, limit=limit * 2)
 
     rows = []
@@ -141,7 +151,10 @@ def search_topic(db: Session, query: str, category: str | None = None, limit: in
         
     if not rows:
         # Real-time search if no local results
-        ingest_query(db, query, limit=10)
+        try:
+            ingest_query(db, query, limit=8)
+        except:
+            pass # Continue to retry search even if ingestion has partial failure
         
         # Retry search with the newly ingested data
         hits = search_similar(query_vector, limit=limit * 2)
@@ -155,6 +168,15 @@ def search_topic(db: Session, query: str, category: str | None = None, limit: in
             fetched_rows.sort(key=lambda x: hit_ids.index(x.id) if x.id in hit_ids else 999)
             rows = fetched_rows[:limit]
 
+    if not rows:
+        return {
+            "query": query,
+            "summary": "No matching articles found yet. The system is currently ingesting background news. Try again in 1 minute.",
+            "key_facts": ["No matches found"],
+            "category": category or "general",
+            "articles": [],
+        }
+
     payload = [
         {
             "title": r.title,
@@ -163,9 +185,13 @@ def search_topic(db: Session, query: str, category: str | None = None, limit: in
             "category": r.category,
         } for r in rows
     ]
-    llm_out = summarize_topic(query, payload)
-    if isinstance(llm_out, str):
-        llm_out = json.loads(llm_out)
+    
+    try:
+        llm_out = summarize_topic(query, payload)
+        if isinstance(llm_out, str):
+            llm_out = json.loads(llm_out)
+    except:
+        llm_out = {"summary": "Briefing generated, but summary engine had a hiccup.", "key_facts": []}
 
     return {
         "query": query,
