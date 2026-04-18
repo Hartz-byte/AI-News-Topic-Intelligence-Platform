@@ -36,29 +36,36 @@ def _process_and_save(db: Session, raw_items: list[dict], forced_cluster: str | 
 
     vectors = embed_texts([f"{a['title']}. {a.get('cleaned_content', '')[:1000]}" for a in enriched])
     
-    for item, vector in zip(enriched, vectors):
-        if forced_cluster:
-            item["cluster_key"] = forced_cluster
-        else:
-            hits = search_similar(vector, limit=1)
-            if hits and hits[0].score > 0.85:
-                item["cluster_key"] = hits[0].payload.get("cluster_key") or item["title"][:80].lower()
+    # Process vectors only if AI returned results
+    if vectors and len(vectors) == len(enriched):
+        for item, vector in zip(enriched, vectors):
+            if forced_cluster:
+                item["cluster_key"] = forced_cluster
             else:
-                item["cluster_key"] = item["title"][:80].lower()
+                hits = search_similar(vector, limit=1)
+                if hits and hits[0].score > 0.85:
+                    item["cluster_key"] = hits[0].payload.get("cluster_key") or item["title"][:80].lower()
+                else:
+                    item["cluster_key"] = item["title"][:80].lower()
+    else:
+        # Fallback for when AI is busy: basic clustering by title
+        for item in enriched:
+            item["cluster_key"] = forced_cluster or item["title"][:80].lower()
 
     saved = upsert_articles(db, enriched)
     saved_urls = {a.url: a for a in saved}
     
-    for item, vector in zip(enriched, vectors):
-        article = saved_urls.get(item["url"])
-        if article:
-            upsert_article_vector(article.id, vector, {
-                "title": article.title,
-                "source_name": article.source_name,
-                "category": article.category,
-                "url": article.url,
-                "cluster_key": article.cluster_key
-            })
+    if vectors and len(vectors) == len(enriched):
+        for item, vector in zip(enriched, vectors):
+            article = saved_urls.get(item["url"])
+            if article:
+                upsert_article_vector(article.id, vector, {
+                    "title": article.title,
+                    "source_name": article.source_name,
+                    "category": article.category,
+                    "url": article.url,
+                    "cluster_key": article.cluster_key
+                })
     return saved
 
 def ingest_all_categories(db: Session, limit: int = 10) -> dict:

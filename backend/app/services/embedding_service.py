@@ -12,14 +12,24 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     
-    # HF limited to 20-30 texts per call locally
-    response = requests.post(
-        HF_API_URL, 
-        headers=headers, 
-        json={"inputs": texts, "options":{"wait_for_model":True}}
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"HF API Error: {response.text}")
+    # HF limited to 20-30 texts per call
+    try:
+        response = requests.post(
+            HF_API_URL, 
+            headers=headers, 
+            json={"inputs": texts, "options":{"wait_for_model":True}},
+            timeout=20
+        )
         
-    return response.json()
+        if response.status_code == 503:
+            # Model is still loading on HF servers
+            return [] 
+            
+        if response.status_code != 200:
+            print(f"HF Error: {response.text}")
+            return []
+            
+        return response.json()
+    except Exception as e:
+        print(f"Embedding failed: {e}")
+        return []
