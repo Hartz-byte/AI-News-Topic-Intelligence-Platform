@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     serper_api_key: str = ""
 
+    pinecone_api_key: str = ""
+    huggingface_token: str = ""
+
     trend_refresh_minutes: int = 30
     article_fetch_limit: int = 30
     log_level: str = "INFO"
