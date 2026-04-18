@@ -82,7 +82,7 @@ Note: Render's Free Tier has an ephemeral hard drive, which wipes native SQLite 
 1. Navigate to share.streamlit.io.
 2. Select your GitHub repository and point the main file path to `frontend/app.py`.
 3. Open "Advanced Settings" and paste your newly acquired Render backend URL:
-`API_BASE_URL = "https://ai-news-backend.onrender.com"`
+`API_BASE_URL = "https://ai-news-topic-intelligence-platform.onrender.com/"`
 4. Deploy the application. Streamlit will only read `frontend/requirements.txt`, launching instantly.
 
 ## Verification / Testing

@@ -57,5 +57,9 @@ app.include_router(trending_router)
 app.include_router(admin_router)
 app.include_router(topics_router)
 
+@app.get("/")
+def read_root():
+    return {"detail": "AI News & Topic Intelligence Platform Backend is Running"}
+
 Instrumentator().instrument(app).expose(app)
 
