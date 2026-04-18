@@ -25,10 +25,12 @@ def refresh_job():
     logger.info("Starting background refresh job...")
     db = SessionLocal()
     try:
+        import time
         from app.services.topic_service import CATEGORIES, ingest_category
         for cat in CATEGORIES:
             try:
-                ingest_category(db, cat, limit=6)
+                ingest_category(db, cat, limit=4)
+                time.sleep(2) # Give Render CPU a breather for API requests
             except Exception as e:
                 logger.error(f"Error ingesting category {cat}: {e}")
         logger.info("Background refresh job completed.")
