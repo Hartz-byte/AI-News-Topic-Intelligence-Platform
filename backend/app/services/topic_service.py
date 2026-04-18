@@ -3,7 +3,7 @@ import json
 from collections import Counter, defaultdict
 from sqlalchemy.orm import Session
 from app.db.models import Article
-from app.services.rss_service import fetch_category_feed
+from app.services.rss_service import fetch_category_feed, fetch_search_feed
 from app.services.extraction_service import extract_article_text, extract_entities, extract_keywords
 from app.services.storage_service import upsert_articles
 from app.services.embedding_service import embed_texts
@@ -12,13 +12,17 @@ from app.services.llm_service import summarize_topic
 
 CATEGORIES = ["technology", "business", "sports", "health", "science", "entertainment", "world"]
 
-def ingest_category(db: Session, category: str, limit: int = 20) -> list[Article]:
-    from app.services.vector_service import search_similar
+def ingest_query(db: Session, query: str, limit: int = 10) -> list[Article]:
+    raw_items = fetch_search_feed(query, limit=limit)
+    return _process_and_save(db, raw_items, query.lower())
 
+def ingest_category(db: Session, category: str, limit: int = 20) -> list[Article]:
     raw_items = fetch_category_feed(category, limit=limit)
+    return _process_and_save(db, raw_items, None)
+
+def _process_and_save(db: Session, raw_items: list[dict], forced_cluster: str | None = None) -> list[Article]:
+    from app.services.vector_service import search_similar
     enriched = []
-    
-    # Process text
     for item in raw_items:
         text = extract_article_text(item["url"])
         item["cleaned_content"] = text[:20000]
@@ -28,23 +32,21 @@ def ingest_category(db: Session, category: str, limit: int = 20) -> list[Article
         enriched.append(item)
 
     ensure_collection()
-    if not enriched:
-        return []
+    if not enriched: return []
 
-    # Get vectors for new items
     vectors = embed_texts([f"{a['title']}. {a.get('cleaned_content', '')[:1000]}" for a in enriched])
     
-    # Semantic clustering
     for item, vector in zip(enriched, vectors):
-        hits = search_similar(vector, limit=1)
-        if hits and hits[0].score > 0.85:
-            item["cluster_key"] = hits[0].payload.get("cluster_key") or item["title"][:80].lower()
+        if forced_cluster:
+            item["cluster_key"] = forced_cluster
         else:
-            item["cluster_key"] = item["title"][:80].lower()
+            hits = search_similar(vector, limit=1)
+            if hits and hits[0].score > 0.85:
+                item["cluster_key"] = hits[0].payload.get("cluster_key") or item["title"][:80].lower()
+            else:
+                item["cluster_key"] = item["title"][:80].lower()
 
     saved = upsert_articles(db, enriched)
-    
-    # Re-map vectors to saved objects
     saved_urls = {a.url: a for a in saved}
     
     for item, vector in zip(enriched, vectors):
@@ -57,7 +59,6 @@ def ingest_category(db: Session, category: str, limit: int = 20) -> list[Article
                 "url": article.url,
                 "cluster_key": article.cluster_key
             })
-
     return saved
 
 def ingest_all_categories(db: Session, limit: int = 10) -> dict:
@@ -120,23 +121,26 @@ def search_topic(db: Session, query: str, category: str | None = None, limit: in
 
     rows = []
     if hits:
-        hit_ids = [hit.id for hit in hits]
-        q = db.query(Article).filter(Article.id.in_(hit_ids))
-        if category:
-            q = q.filter(Article.category == category)
-        fetched_rows = q.all()
-        fetched_rows.sort(key=lambda x: hit_ids.index(x.id) if x.id in hit_ids else 999)
-        rows = fetched_rows[:limit]
+        # Only accept hits with a decent similarity score (e.g. 0.35+)
+        qualified_hits = [h for h in hits if h.score > 0.35]
+        if qualified_hits:
+            hit_ids = [hit.id for hit in qualified_hits]
+            q = db.query(Article).filter(Article.id.in_(hit_ids))
+            if category:
+                q = q.filter(Article.category == category)
+            fetched_rows = q.all()
+            fetched_rows.sort(key=lambda x: hit_ids.index(x.id) if x.id in hit_ids else 999)
+            rows = fetched_rows[:limit]
         
     if not rows:
-        # Fallback to ingestion if we don't have good hits
-        for cat in [category] if category else ["technology", "business", "world"]:
-            ingest_category(db, cat, limit=10)
+        # Real-time search if no local results
+        ingest_query(db, query, limit=10)
         
-        # Retry vector search
+        # Retry search with the newly ingested data
         hits = search_similar(query_vector, limit=limit * 2)
-        if hits:
-            hit_ids = [hit.id for hit in hits]
+        qualified_hits = [h for h in hits if h.score > 0.35]
+        if qualified_hits:
+            hit_ids = [hit.id for hit in qualified_hits]
             q = db.query(Article).filter(Article.id.in_(hit_ids))
             if category:
                 q = q.filter(Article.category == category)

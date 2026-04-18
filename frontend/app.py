@@ -13,16 +13,34 @@ st.title("AI News & Topic Intelligence Platform")
 categories = ["technology", "business", "sports", "health", "science", "entertainment", "world"]
 
 with st.sidebar:
+    st.header("System Status")
+    
+    # Render Sleep Note
+    st.info(f"💡 **Note**: The backend gets inactive on Render Free Tier. Click [here]({API_BASE_URL}) to wake it up.")
+
+    # Connection Checker
+    if st.button("Check Connection"):
+        try:
+            with st.spinner("Pinging..."):
+                test_resp = requests.get(f"{API_BASE_URL}/", timeout=10)
+                if test_resp.status_code == 200:
+                    st.success("✅ Connected to Backend")
+                else:
+                    st.error(f"⚠️ Server returned {test_resp.status_code}")
+        except:
+            st.error("❌ Backend is Offline")
+
+    st.divider()
     st.header("Navigation Guide")
     st.markdown("""
     **📈 Trending**
-    Discover the most active news topics right now. The AI dynamically groups related articles into clusters and calculates a complex "Trend Score" based on recency, volume, and publisher diversity. Click "View Timeline" on any topic to see how the story developed.
-
+    Discover active news clusters and trend scores.
+    
     **🔍 Topic Search**
-    Perform semantic vector searches across your local database. Type any concept or entity, and the native NLP engine will find mathematically related articles, instantly synthesizing them into a clean briefing using Groq LLaMA models.
+    Semantic search with real-time global news ingestion.
 
     **📰 About the project**
-    Learn about the underlying architecture, data flow, NLP techniques, and technology stack powering this 100% native Python application.
+    Architecture and Tech Stack overview.
     """)
 
 tab1, tab2, tab3 = st.tabs(["Trending", "Topic Search", "About the project"])

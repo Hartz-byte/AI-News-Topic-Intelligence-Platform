@@ -13,6 +13,15 @@ GOOGLE_NEWS_RSS = {
 
 def fetch_category_feed(category: str, limit: int = 20) -> list[dict]:
     url = GOOGLE_NEWS_RSS.get(category, GOOGLE_NEWS_RSS["world"])
+    return _parse_feed(url, category, limit)
+
+def fetch_search_feed(query: str, limit: int = 15) -> list[dict]:
+    import urllib.parse
+    encoded_query = urllib.parse.quote(query)
+    url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-IN&gl=IN&ceid=IN:en"
+    return _parse_feed(url, "search", limit)
+
+def _parse_feed(url: str, category: str, limit: int) -> list[dict]:
     feed = feedparser.parse(url)
     items = []
     for entry in feed.entries[:limit]:
