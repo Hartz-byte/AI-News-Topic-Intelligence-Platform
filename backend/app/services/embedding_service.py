@@ -18,18 +18,29 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             HF_API_URL, 
             headers=headers, 
             json={"inputs": texts, "options":{"wait_for_model":True}},
-            timeout=20
+            timeout=25
         )
         
         if response.status_code == 503:
-            # Model is still loading on HF servers
             return [] 
             
+        if response.status_code == 401:
+            print("HF Error: Unauthorized. Check your HUGGINGFACE_TOKEN.")
+            return []
+
         if response.status_code != 200:
-            print(f"HF Error: {response.text}")
+            print(f"HF Error {response.status_code}: {response.text}")
             return []
             
-        return response.json()
+        result = response.json()
+        
+        # Consistent format: Always return a list of lists
+        # If result is [0.1, 0.2...], wrap it in [[...]]
+        if isinstance(result, list) and len(result) > 0 and not isinstance(result[0], list):
+            return [result]
+            
+        return result
+
     except Exception as e:
         print(f"Embedding failed: {e}")
         return []
